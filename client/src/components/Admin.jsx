@@ -15,6 +15,8 @@ import {
 } from "lucide-react"
 import MonthlyReport from "./MonthlyReport"
 
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL
+
 export default function Admin() {
   const [activeTab, setActiveTab] = useState("employees")
   const [employees, setEmployees] = useState([])
@@ -43,7 +45,7 @@ export default function Admin() {
   const fetchEmployees = async () => {
     setLoading(true)
     try {
-      const response = await axios.get("http://192.168.1.10:5000/api/employees")
+      const response = await axios.get(`${API_BASE_URL}/api/employees`)
       if (response.data.success) {
         setEmployees(response.data.employees)
       }
@@ -62,7 +64,7 @@ export default function Admin() {
   const onSubmit = async (data) => {
     setLoading(true)
     try {
-      const response = await axios.post("http://192.168.1.10:5000/api/employees", data)
+      const response = await axios.post(`${API_BASE_URL}/api/employees`, data)
       if (response.data.success) {
         showToast("Success", "Employee added successfully")
         reset()
@@ -81,7 +83,7 @@ export default function Admin() {
 
     setLoading(true)
     try {
-      const response = await axios.delete(`http://192.168.1.10:5000/api/employees/${employeeId}`)
+      const response = await axios.delete(`${API_BASE_URL}/api/employees/${employeeId}`)
       if (response.data.success) {
         showToast("Success", "Employee deleted successfully")
         fetchEmployees()
