@@ -167,7 +167,7 @@ export default function ProjectTimeTracker() {
         additionalEmail: watchedValues.userEmail.trim() || undefined,
       }
 
-      const response = await axios.post("http://192.168.1.10:5000/api/generate-report", reportData)
+      const response = await axios.post(`${API_BASE_URL}/api/generate-report`, reportData)
 
       if (response.data.success) {
         const successMessage = watchedValues.userEmail.trim()
@@ -193,7 +193,7 @@ export default function ProjectTimeTracker() {
   // Fetch employees from database
   const fetchEmployees = async () => {
     try {
-      const response = await axios.get("http://192.168.1.10:5000/api/employees")
+      const response = await axios.get(`${API_BASE_URL}/api/employees`)
       if (response.data.success) {
         const employeeOptions = response.data.employees.map(emp => ({
           value: `${emp.employee_id}-${emp.employee_name}`,

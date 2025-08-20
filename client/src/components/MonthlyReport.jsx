@@ -88,7 +88,7 @@ export default function MonthlyReport() {
         toDate: watchedValues.toDate || null,
       }
 
-      const response = await axios.get("http://192.168.1.10:5000/api/monthly-report", { params })
+      const response = await axios.get(`${API_BASE_URL}/api/monthly-report`, { params })
       
       if (response.data.success) {
         setReports(response.data.reports)
@@ -152,7 +152,7 @@ export default function MonthlyReport() {
   // Fetch employees from database
   const fetchEmployees = async () => {
     try {
-      const response = await axios.get("http://192.168.1.10:5000/api/employees")
+      const response = await axios.get(`${API_BASE_URL}/api/employees`)
       if (response.data.success) {
         const employeeOptions = response.data.employees.map(emp => ({
           value: `${emp.employee_id}-${emp.employee_name}`,
