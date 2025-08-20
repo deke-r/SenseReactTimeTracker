@@ -17,17 +17,7 @@ import {
   TrendingUp
 } from "lucide-react"
 
-const userOptions = [
-  { value: "SPPL0042-BHAVISHYA CHAUHAN", label: "BHAVISHYA CHAUHAN" },
-  { value: "SPPL0044-HIMANSHI BANSAL", label: "HIMANSHI BANSAL" },
-  { value: "SPPL0031-OM PRAKASH", label: "OM PRAKASH" },
-  { value: "SPPL0041-OM SHARMA", label: "OM SHARMA" },
-  { value: "SPPL0039-RATAN RAJ", label: "RATAN RAJ" },
-  { value: "SPPL0040-SURBHI KASHYAP", label: "SURBHI KASHYAP" },
-  { value: "SPPL0046-SUSHANT PANDEY", label: "SUSHANT PANDEY" },
-  { value: "SPPL0037-TAUKEER", label: "TAUKEER" },
-  { value: "SPPL0043-VINAY SHARMA", label: "VINAY SHARMA" },
-]
+
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL
 
@@ -35,6 +25,7 @@ const API_BASE_URL = process.env.REACT_APP_API_BASE_URL
 export default function MonthlyReport() {
   const [reports, setReports] = useState([])
   const [loading, setLoading] = useState(false)
+  const [sendingEmail, setSendingEmail] = useState(false)  // Add this line
   const [expandedProjects, setExpandedProjects] = useState({})
   const [toast, setToast] = useState(null)
   const [employees, setEmployees] = useState([])
@@ -165,18 +156,7 @@ export default function MonthlyReport() {
       }
     } catch (error) {
       console.error("Error fetching employees:", error)
-      // Fallback to hardcoded options if API fails
-      setEmployees([
-        { value: "SPPL0042-BHAVISHYA CHAUHAN", label: "BHAVISHYA CHAUHAN" },
-        { value: "SPPL0044-HIMANSHI BANSAL", label: "HIMANSHI BANSAL" },
-        { value: "SPPL0031-OM PRAKASH", label: "OM PRAKASH" },
-        { value: "SPPL0041-OM SHARMA", label: "OM SHARMA" },
-        { value: "SPPL0039-RATAN RAJ", label: "RATAN RAJ" },
-        { value: "SPPL0040-SURBHI KASHYAP", label: "SURBHI KASHYAP" },
-        { value: "SPPL0046-SUSHANT PANDEY", label: "SUSHANT PANDEY" },
-        { value: "SPPL0037-TAUKEER", label: "TAUKEER" },
-        { value: "SPPL0043-VINAY SHARMA", label: "VINAY SHARMA" },
-      ])
+ 
     } finally {
       setLoadingEmployees(false)
     }
@@ -185,6 +165,39 @@ export default function MonthlyReport() {
   useEffect(() => {
     fetchEmployees()
   }, [])
+
+  // Add this function after fetchMonthlyReport function
+  const sendMonthlyReportEmail = async () => {
+    if (!watchedValues.employeeId) {
+      showToast("Missing Information", "Please select an employee", "destructive")
+      return
+    }
+
+    if (reports.length === 0) {
+      showToast("No Data", "Please generate a report first before sending email", "destructive")
+      return
+    }
+
+    setSendingEmail(true)
+    try {
+      const response = await axios.post(`${API_BASE_URL}/api/send-monthly-report`, {
+        employeeId: watchedValues.employeeId,
+        fromDate: watchedValues.fromDate || null,
+        toDate: watchedValues.toDate || null,
+        reports: reports
+      })
+      
+      if (response.data.success) {
+        showToast("Success", response.data.message)
+      } else {
+        showToast("Error", response.data.error || "Failed to send report", "destructive")
+      }
+    } catch (error) {
+      showToast("Error", error.response?.data?.error || "Failed to send report", "destructive")
+    } finally {
+      setSendingEmail(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
@@ -216,7 +229,7 @@ export default function MonthlyReport() {
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-6 border-b">
             <h2 className="text-xl font-bold mb-4">Report Filters</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-gray-700">
                   <div className="flex items-center gap-2">
@@ -285,17 +298,30 @@ export default function MonthlyReport() {
                 />
                 {errors.toDate && <p className="text-sm text-red-500">{errors.toDate.message}</p>}
               </div>
-
-              <div className="flex items-end">
+            </div>
+            
+            {/* Button Section - Separate from the grid */}
+            <div className="flex gap-2">
+              <button
+                onClick={fetchMonthlyReport}
+                disabled={loading || !watchedValues.employeeId}
+                className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                {loading ? "Loading..." : "Generate Report"}
+              </button>
+              
+              {reports.length > 0 && (
                 <button
-                  onClick={fetchMonthlyReport}
-                  disabled={loading || !watchedValues.employeeId}
-                  className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  onClick={sendMonthlyReportEmail}
+                  disabled={sendingEmail || !watchedValues.employeeId}
+                  className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  title="Send Report"
                 >
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                  {loading ? "Loading..." : "Generate Report"}
+                  {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                  {sendingEmail ? "Sending..." : "Send Report"}
                 </button>
-              </div>
+              )}
             </div>
           </div>
         </div>

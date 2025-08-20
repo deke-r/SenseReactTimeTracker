@@ -207,17 +207,7 @@ export default function ProjectTimeTracker() {
     } catch (error) {
       console.error("Error fetching employees:", error)
       // Fallback to hardcoded options if API fails
-      setEmployees([
-        { value: "SPPL0042-BHAVISHYA CHAUHAN", label: "BHAVISHYA CHAUHAN" },
-        { value: "SPPL0044-HIMANSHI BANSAL", label: "HIMANSHI BANSAL" },
-        { value: "SPPL0031-OM PRAKASH", label: "OM PRAKASH" },
-        { value: "SPPL0041-OM SHARMA", label: "OM SHARMA" },
-        { value: "SPPL0039-RATAN RAJ", label: "RATAN RAJ" },
-        { value: "SPPL0040-SURBHI KASHYAP", label: "SURBHI KASHYAP" },
-        { value: "SPPL0046-SUSHANT PANDEY", label: "SUSHANT PANDEY" },
-        { value: "SPPL0037-TAUKEER", label: "TAUKEER" },
-        { value: "SPPL0043-VINAY SHARMA", label: "VINAY SHARMA" },
-      ])
+
     } finally {
       setLoadingEmployees(false)
     }
