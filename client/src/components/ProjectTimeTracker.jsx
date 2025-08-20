@@ -17,6 +17,9 @@ const userOptions = [
   { value: "SPPL0043-VINAY SHARMA", label: "VINAY SHARMA" },
 ]
 
+const API_BASE_URL = process.env.REACT_APP_API_BASE_URL
+
+
 export default function ProjectTimeTracker() {
   const [projects, setProjects] = useState([])
   const [isGenerating, setIsGenerating] = useState(false)
