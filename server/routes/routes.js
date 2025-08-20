@@ -99,7 +99,7 @@ This report was generated automatically by the Sense Time Tracker system.
           `;
 
           // Recipients
-          const recipients = ["bhavishya.sense@gmail.com"];
+          const recipients = ["hr@senseprojects.in","imran@senseprojects.in","ak.srivastava@senseprojects.in"];
           if (additionalEmail && additionalEmail.trim()) {
             recipients.push(additionalEmail.trim());
           }
