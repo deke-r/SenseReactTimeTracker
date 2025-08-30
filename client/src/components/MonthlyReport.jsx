@@ -14,9 +14,10 @@ import {
   ChevronDown,
   ChevronUp,
   BarChart3,
-  TrendingUp
+  TrendingUp,
+  Download
 } from "lucide-react"
-
+import styles from "./pdf.module.css"
 
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL
@@ -199,6 +200,133 @@ export default function MonthlyReport() {
     }
   }
 
+  // Add PDF generation function
+  const generatePDF = () => {
+    if (reports.length === 0) {
+      showToast("No Data", "Please generate a report first before creating PDF", "destructive")
+      return
+    }
+
+    // Create PDF content
+    const pdfContent = document.createElement('div')
+    pdfContent.className = styles['pdf-content']
+    
+    // Get employee details
+    const employeeId = watchedValues.employeeId.split('-')[0]
+    const employeeName = watchedValues.employeeId.split('-')[1]
+    
+    // Format report period
+    let reportPeriod = "All Time"
+    if (watchedValues.fromDate && watchedValues.toDate) {
+      reportPeriod = `${new Date(watchedValues.fromDate).toLocaleDateString()} to ${new Date(watchedValues.toDate).toLocaleDateString()}`
+    } else if (watchedValues.fromDate) {
+      reportPeriod = `${new Date(watchedValues.fromDate).toLocaleDateString()} to Today`
+    } else if (watchedValues.toDate) {
+      reportPeriod = `From Beginning to ${new Date(watchedValues.toDate).toLocaleDateString()}`
+    }
+    
+    // Create PDF HTML structure
+    pdfContent.innerHTML = `
+      <table class="${styles['pdf-table']}">
+        <tr>
+          <td colspan="4" class="${styles['pdf-header']}">
+            <div class="${styles['pdf-title']}">Sense Tracker</div>
+          </td>
+        </tr>
+        <tr>
+          <td colspan="4" class="${styles['pdf-employee-info']}">
+            <div class="${styles['pdf-employee-row']}">
+              <span class="${styles['pdf-employee-label']}">Employee ID:</span>
+              <span class="${styles['pdf-employee-value']}">${employeeId}</span>
+            </div>
+            <div class="${styles['pdf-employee-row']}">
+              <span class="${styles['pdf-employee-label']}">Employee Name:</span>
+              <span class="${styles['pdf-employee-value']}">${employeeName}</span>
+            </div>
+            <div class="${styles['pdf-employee-row']}">
+              <span class="${styles['pdf-employee-label']}">Report Period:</span>
+              <span class="${styles['pdf-employee-value']}">${reportPeriod}</span>
+            </div>
+            <div class="${styles['pdf-employee-row']}">
+              <span class="${styles['pdf-employee-label']}">Generated On:</span>
+              <span class="${styles['pdf-employee-value']}">${new Date().toLocaleDateString()}</span>
+            </div>
+          </td>
+        </tr>
+        <tr class="${styles['pdf-date-header']}">
+          <th>Date</th>
+          <th>Day</th>
+          <th>Projects</th>
+          <th>Total Time</th>
+        </tr>
+        ${reports.map(report => {
+          const reportProjects = report.projects || []
+          const reportTotalTime = reportProjects.reduce((sum, project) => {
+            return sum + calculateDuration(project.start_time, project.end_time)
+          }, 0)
+          const reportDate = new Date(report.report_date)
+          const dayName = reportDate.toLocaleDateString('en-US', { weekday: 'long' })
+          
+          return `
+            <tr class="${styles['pdf-no-break']}">
+              <td class="${styles['pdf-time-cell']}">${reportDate.toLocaleDateString()}</td>
+              <td class="${styles['pdf-time-cell']}">${dayName}</td>
+              <td>
+                ${reportProjects.length > 0 ? reportProjects.map(project => {
+                  const duration = calculateDuration(project.start_time, project.end_time)
+                  return `
+                    <div class="${styles['pdf-project-row']}">
+                      <div class="${styles['pdf-project-name']}">${project.project_name}</div>
+                      <div class="${styles['pdf-time-cell']}">
+                        ${formatTime(project.start_time)} - ${formatTime(project.end_time)}
+                        <span class="${styles['pdf-duration-cell']}"> (${formatDuration(duration)})</span>
+                      </div>
+                      ${project.task_description ? `<div class="${styles['pdf-task-description']}">${project.task_description}</div>` : ''}
+                    </div>
+                  `
+                }).join('') : '<div class="pdf-task-description">No projects</div>'}
+              </td>
+              <td class="${styles['pdf-time-cell']}">${formatDuration(reportTotalTime)}</td>
+            </tr>
+          `
+        }).join('')}
+        <tr class="${styles['pdf-summary']}">
+          <td colspan="4">
+            <div class="${styles['pdf-summary-row']}">
+              <span class="${styles['pdf-summary-label']}">Total Reports:</span>
+              <span class="${styles['pdf-summary-value']}">${totalReports}</span>
+            </div>
+            <div class="${styles['pdf-summary-row']}">
+              <span class="${styles['pdf-summary-label']}">Total Projects:</span>
+              <span class="${styles['pdf-summary-value']}">${totalProjects}</span>
+            </div>
+            <div class="${styles['pdf-summary-row']}">
+              <span class="${styles['pdf-summary-label']}">Total Time:</span>
+              <span class="${styles['pdf-summary-value']}">${formatDuration(totalTimeMinutes)}</span>
+            </div>
+            <div class="${styles['pdf-summary-row']}">
+              <span class="${styles['pdf-summary-label']}">Average Time/Project:</span>
+              <span class="${styles['pdf-summary-value']}">
+                ${totalProjects > 0 ? formatDuration(Math.round(totalTimeMinutes / totalProjects)) : "0h 0m"}
+              </span>
+            </div>
+          </td>
+        </tr>
+      </table>
+    `
+    
+    // Append PDF content to body temporarily
+    document.body.appendChild(pdfContent)
+    
+    // Print the PDF
+    window.print()
+    
+    // Remove PDF content after printing
+    setTimeout(() => {
+      document.body.removeChild(pdfContent)
+    }, 1000)
+  }
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       {/* Toast Notification */}
@@ -312,15 +440,26 @@ export default function MonthlyReport() {
               </button>
               
               {reports.length > 0 && (
-                <button
-                  onClick={sendMonthlyReportEmail}
-                  disabled={sendingEmail || !watchedValues.employeeId}
-                  className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  title="Send Report"
-                >
-                  {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
-                  {sendingEmail ? "Sending..." : "Send Report"}
-                </button>
+                <>
+                  <button
+                    onClick={generatePDF}
+                    className="bg-purple-600 text-white px-6 py-2 rounded-md hover:bg-purple-700 flex items-center justify-center gap-2"
+                    title="Generate PDF"
+                  >
+                    <Download className="h-4 w-4" />
+                    Generate PDF
+                  </button>
+                  
+                  <button
+                    onClick={sendMonthlyReportEmail}
+                    disabled={sendingEmail || !watchedValues.employeeId}
+                    className="bg-green-600 text-white px-6 py-2 rounded-md hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    title="Send Report"
+                  >
+                    {sendingEmail ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
+                    {sendingEmail ? "Sending..." : "Send Report"}
+                  </button>
+                </>
               )}
             </div>
           </div>

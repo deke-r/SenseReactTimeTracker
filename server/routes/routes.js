@@ -788,7 +788,7 @@ This report was generated automatically by the Sense Time Tracker system.
 
     // Recipients - Imran AK and HR emails
     // const recipients = ["bhavishya.sense@gmail.com"];
-    const recipients = ["hr@senseprojects.in", "imran@senseprojects.in", "ak.srivastava@senseprojects.in"];
+    const recipients = ["hr@senseprojects.in", "ak.srivastava@senseprojects.in"];
 
     // Mail options
     const mailOptions = {
