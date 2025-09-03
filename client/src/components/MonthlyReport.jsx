@@ -32,6 +32,10 @@ export default function MonthlyReport() {
   const [employees, setEmployees] = useState([])
   const [loadingEmployees, setLoadingEmployees] = useState(true)
 
+  // New state for projects metadata and aggregates
+  const [projectsMeta, setProjectsMeta] = useState([])
+  const [projectAggregates, setProjectAggregates] = useState([])
+
   const {
     register,
     handleSubmit,
@@ -87,8 +91,12 @@ export default function MonthlyReport() {
       
       if (response.data.success) {
         setReports(response.data.reports)
+        // fetch projects meta using numeric id part
+        const empIdOnly = watchedValues.employeeId.split('-')[0]
+        fetchProjectsMeta(empIdOnly)
         showToast("Success", `Found ${response.data.reports.length} reports`)
       } else {
+        setReports([])
         showToast("No Data", "No reports found for the selected criteria")
       }
     } catch (error) {
@@ -167,6 +175,156 @@ export default function MonthlyReport() {
     fetchEmployees()
   }, [])
 
+  // Fetch projects meta (start_date, end_date, status) by employee
+  const fetchProjectsMeta = async (empIdOnly) => {
+    try {
+      const res = await axios.get(`${API_BASE_URL}/api/projects`, {
+        params: { employeeId: empIdOnly }
+      })
+      if (res.data?.success) {
+        setProjectsMeta(res.data.projects || [])
+      } else {
+        setProjectsMeta([])
+      }
+    } catch (e) {
+      setProjectsMeta([])
+      console.error("Error fetching projects meta:", e)
+    }
+  }
+
+  // Recompute per-project totals for selected time window
+  const recomputeAggregates = () => {
+    if (!reports || reports.length === 0) {
+      setProjectAggregates([])
+      return
+    }
+
+    const map = new Map()
+    reports.forEach((r) => {
+      const reportDate = r.report_date
+      ;(r.projects || []).forEach((p) => {
+        const key = p.project_name || "Unnamed"
+        const start = new Date(`2000-01-01T${p.start_time}`)
+        const end = new Date(`2000-01-01T${p.end_time}`)
+        const minutes = (end.getTime() - start.getTime()) / (1000 * 60)
+
+        if (!map.has(key)) {
+          map.set(key, {
+            project_name: key,
+            totalMinutes: 0,
+            firstWorkedDate: reportDate,
+            lastWorkedDate: reportDate
+          })
+        }
+        const entry = map.get(key)
+        entry.totalMinutes += minutes
+        if (new Date(reportDate) < new Date(entry.firstWorkedDate)) {
+          entry.firstWorkedDate = reportDate
+        }
+        if (new Date(reportDate) > new Date(entry.lastWorkedDate)) {
+          entry.lastWorkedDate = reportDate
+        }
+      })
+    })
+
+    const joined = Array.from(map.values()).map((agg) => {
+      const meta = projectsMeta.find(m => (m.project_name || "").trim() === agg.project_name.trim())
+      return {
+        project_name: agg.project_name,
+        totalMinutes: Math.round(agg.totalMinutes),
+        totalHoursText: formatDuration(Math.round(agg.totalMinutes)),
+        start_date: meta?.start_date || agg.firstWorkedDate || "",
+        end_date: meta?.end_date || agg.lastWorkedDate || "",
+        status: meta?.status || "active"
+      }
+    })
+
+    setProjectAggregates(joined.sort((a, b) => b.totalMinutes - a.totalMinutes))
+  }
+
+  // Recompute aggregates whenever reports or meta change
+  useEffect(() => {
+    recomputeAggregates()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reports, projectsMeta])
+
+  // Preload meta when employee changes
+  useEffect(() => {
+    if (watchedValues.employeeId) {
+      const empIdOnly = watchedValues.employeeId.split('-')[0]
+      fetchProjectsMeta(empIdOnly)
+    } else {
+      setProjectsMeta([])
+      setProjectAggregates([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedValues.employeeId])
+
+  // Simple inline SVG Pie Chart
+  const PieChart = ({ data, size = 220, strokeWidth = 32 }) => {
+    const total = data.reduce((s, d) => s + d.value, 0)
+    if (total <= 0) return <div className="text-sm text-gray-500">No data</div>
+
+    const radius = (size - strokeWidth) / 2
+    const circumference = 2 * Math.PI * radius
+
+    let cumulative = 0
+    const segments = data.map((d, idx) => {
+      const fraction = d.value / total
+      const dash = fraction * circumference
+      const gap = circumference - dash
+      const offset = (circumference * 0.25) - cumulative
+      cumulative += dash
+      return (
+        <circle
+          key={idx}
+          r={radius}
+          cx={size / 2}
+          cy={size / 2}
+          fill="transparent"
+          stroke={d.color}
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${dash} ${gap}`}
+          strokeDashoffset={offset}
+        />
+      )
+    })
+
+    return (
+      <div className="flex items-center gap-6">
+        <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+          {segments}
+        </svg>
+        <div className="space-y-2">
+          {data.map((d, i) => (
+            <div key={i} className="flex items-center gap-2 text-sm">
+              <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: d.color }} />
+              <span className="font-medium">{d.label}</span>
+              <span className="text-gray-500">— {formatDuration(Math.round(d.value))}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // Build pie data/colors from aggregates
+  const pieData = projectAggregates.slice(0, 12).map((p, i) => {
+    const colors = [
+      "#6366F1","#22C55E","#F59E0B","#EF4444","#06B6D4","#A855F7",
+      "#84CC16","#E879F9","#14B8A6","#F97316","#3B82F6","#10B981"
+    ]
+    return {
+      label: p.project_name,
+      value: p.totalMinutes,
+      color: colors[i % colors.length]
+    }
+  })
+
+  const projectsTotalMinutes = projectAggregates.reduce((s, p) => s + p.totalMinutes, 0)
+  const projectsCountWithTime = projectAggregates.length
+  const avgPerProjectMinutes = projectsCountWithTime > 0 ? Math.round(projectsTotalMinutes / projectsCountWithTime) : 0
+
   // Add this function after fetchMonthlyReport function
   const sendMonthlyReportEmail = async () => {
     if (!watchedValues.employeeId) {
@@ -201,7 +359,8 @@ export default function MonthlyReport() {
   }
 
   // Add PDF generation function
-  const generatePDF = () => {
+   // Add PDF generation function
+   const generatePDF = () => {
     if (reports.length === 0) {
       showToast("No Data", "Please generate a report first before creating PDF", "destructive")
       return
@@ -223,6 +382,88 @@ export default function MonthlyReport() {
       reportPeriod = `${new Date(watchedValues.fromDate).toLocaleDateString()} to Today`
     } else if (watchedValues.toDate) {
       reportPeriod = `From Beginning to ${new Date(watchedValues.toDate).toLocaleDateString()}`
+    }
+
+    // Build pie chart SVG from aggregates (same math as PieChart component)
+    const buildPieChartSvg = () => {
+      if (!projectAggregates || projectAggregates.length === 0) return ""
+      const data = pieData
+      const size = 220
+      const strokeWidth = 32
+      const total = data.reduce((s, d) => s + d.value, 0)
+      if (total <= 0) return ""
+      const radius = (size - strokeWidth) / 2
+      const circumference = 2 * Math.PI * radius
+      let cumulative = 0
+      const segments = data.map((d) => {
+        const fraction = d.value / total
+        const dash = fraction * circumference
+        const gap = circumference - dash
+        const offset = (circumference * 0.25) - cumulative
+        cumulative += dash
+        return `<circle r="${radius}" cx="${size/2}" cy="${size/2}" fill="transparent" stroke="${d.color}" stroke-width="${strokeWidth}" stroke-dasharray="${dash} ${gap}" stroke-dashoffset="${offset}" />`
+      }).join('')
+
+      const legend = data.map((d) => `
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;">
+          <span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:${d.color};"></span>
+          <span style="font-weight:600;">${d.label}</span>
+          <span style="color:#555;">— ${formatDuration(Math.round(d.value))}</span>
+        </div>
+      `).join('')
+
+      return `
+        <div class="${styles['pdf-no-break']}" style="display:flex;gap:16px;align-items:center;margin:10px 0 0;">
+          <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${segments}</svg>
+          <div style="display:flex;flex-direction:column;gap:6px;">${legend}</div>
+        </div>
+      `
+    }
+
+    // Build monthly per-project summary table
+    const buildProjectsTable = () => {
+      if (!projectAggregates || projectAggregates.length === 0) return ""
+      const header = `
+        <tr>
+          <th>Project</th>
+          <th>Start Date</th>
+          <th>End Date</th>
+          <th>Status</th>
+          <th>Total Time</th>
+        </tr>
+      `
+      const rows = projectAggregates.map((p) => `
+        <tr class="${styles['pdf-no-break']}">
+          <td>${p.project_name}</td>
+          <td>${p.start_date ? new Date(p.start_date).toLocaleDateString() : "-"}</td>
+          <td>${p.end_date ? new Date(p.end_date).toLocaleDateString() : "-"}</td>
+          <td>${p.status}</td>
+          <td>${p.totalHoursText}</td>
+        </tr>
+      `).join('')
+
+      const quickStats = `
+        <div style="font-size:11px;color:#444;margin:6px 0 12px;">
+          <span style="margin-right:16px;"><span style="font-weight:600;">Total Projects:</span> ${projectAggregates.length}</span>
+          <span style="margin-right:16px;"><span style="font-weight:600;">Total Hours:</span> ${formatDuration(projectsTotalMinutes)}</span>
+          <span style="margin-right:16px;"><span style="font-weight:600;">Avg per Project:</span> ${formatDuration(avgPerProjectMinutes)}</span>
+        </div>
+      `
+
+      return `
+        <tr>
+          <td colspan="4" style="padding:0;border:none;">
+            <div class="${styles['pdf-no-break']}" style="margin-top:16px;">
+              <div style="font-size:16px;font-weight:700;margin:4px 0 6px;">Projects (Selected Period)</div>
+              ${quickStats}
+              <table class="${styles['pdf-table']}" style="margin-top:6px;">
+                ${header}
+                ${rows}
+              </table>
+            </div>
+          </td>
+        </tr>
+      `
     }
     
     // Create PDF HTML structure
@@ -253,6 +494,7 @@ export default function MonthlyReport() {
             </div>
           </td>
         </tr>
+
         <tr class="${styles['pdf-date-header']}">
           <th>Date</th>
           <th>Day</th>
@@ -290,6 +532,7 @@ export default function MonthlyReport() {
             </tr>
           `
         }).join('')}
+
         <tr class="${styles['pdf-summary']}">
           <td colspan="4">
             <div class="${styles['pdf-summary-row']}">
@@ -310,8 +553,15 @@ export default function MonthlyReport() {
                 ${totalProjects > 0 ? formatDuration(Math.round(totalTimeMinutes / totalProjects)) : "0h 0m"}
               </span>
             </div>
+
+            <div class="${styles['pdf-no-break']}" style="margin-top:12px;">
+              <div style="font-size:16px;font-weight:700;margin-bottom:6px;">Project Hours Distribution</div>
+              ${buildPieChartSvg()}
+            </div>
           </td>
         </tr>
+
+        ${buildProjectsTable()}
       </table>
     `
     
@@ -496,6 +746,74 @@ export default function MonthlyReport() {
               </div>
               <div className="text-2xl font-bold">
                 {totalProjects > 0 ? formatDuration(Math.round(totalTimeMinutes / totalProjects)) : "0h 0m"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Pie Chart + Projects Summary */}
+        {reports.length > 0 && projectAggregates.length > 0 && (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-semibold">Project Hours Distribution</h3>
+              </div>
+              <PieChart data={pieData} />
+            </div>
+
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-lg font-semibold">Projects (Selected Period)</h3>
+              </div>
+
+              <div className="text-sm text-gray-600 mb-3">
+                <span className="mr-4"><span className="font-medium">Total Projects:</span> {projectAggregates.length}</span>
+                <span className="mr-4"><span className="font-medium">Total Hours:</span> {formatDuration(projectsTotalMinutes)}</span>
+                <span className="mr-4"><span className="font-medium">Avg per Project:</span> {formatDuration(avgPerProjectMinutes)}</span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">End Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Time</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {projectAggregates.map((p) => (
+                      <tr key={p.project_name} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm font-medium text-gray-900">{p.project_name}</div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {p.start_date ? new Date(p.start_date).toLocaleDateString() : "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">
+                            {p.end_date ? new Date(p.end_date).toLocaleDateString() : "-"}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium border
+                            ${p.status === "completed" ? "bg-green-50 text-green-700 border-green-200" : 
+                               p.status === "paused" ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                               "bg-blue-50 text-blue-700 border-blue-200"}`}>
+                            {p.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="text-sm text-gray-900">{p.totalHoursText}</div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>

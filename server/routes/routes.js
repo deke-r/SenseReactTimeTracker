@@ -17,46 +17,45 @@ router.get("/", (req, res) => {
     res.json({ message: "Server is running!" })
   })
 
-router.post("/api/generate-report", (req, res) => {
-  try {
-    const { userName, date, projects, stats, additionalEmail } = req.body;
-
-    const empName = userName.split("-")[1].trim();
-    const empId = userName.split("-")[0].trim();
-
-    const mysqlDate = new Date(date).toLocaleDateString("en-CA"); // yyyy-mm-dd (local time)
- 
-
-    // 1️⃣ Insert into daily_reports
-    const reportQuery = `INSERT INTO daily_reports (employee_id, employee_name, report_date) VALUES (?, ?, ?)`;
-
-    con.query(reportQuery, [empId, empName, mysqlDate], (err, reportResult) => {
-      if (err) {
-        console.error("Error inserting into daily_reports:", err);
-        return res.status(500).json({ error: "Failed to insert daily report" });
-      }
-
-      const reportId = reportResult.insertId;
-
-      // 2️⃣ Insert into daily_report_projects
-      if (projects && projects.length > 0) {
-        const projectValues = projects.map((p) => [
-          reportId,
-          p.name,
-          p.startTime,
-          p.endTime,
-          p.description || "",
-        ]);
-
-        const projectQuery = `INSERT INTO daily_report_projects (report_id, project_name, start_time, end_time, task_description) VALUES ?`;
-
-        con.query(projectQuery, [projectValues], async (err2) => {
-          if (err2) {
-            console.error("Error inserting into daily_report_projects:", err2);
-            return res
-              .status(500)
-              .json({ error: "Failed to insert project details" });
-          }
+  router.post("/api/generate-report", (req, res) => {
+    try {
+      const { userName, date, projects, stats, additionalEmail } = req.body;
+  
+      const empName = userName.split("-")[1].trim();
+      const empId = userName.split("-")[0].trim();
+  
+      const mysqlDate = new Date(date).toLocaleDateString("en-CA");
+  
+      const reportQuery = `INSERT INTO daily_reports (employee_id, employee_name, report_date) VALUES (?, ?, ?)`;
+  
+      con.query(reportQuery, [empId, empName, mysqlDate], (err, reportResult) => {
+        if (err) {
+          console.error("Error inserting into daily_reports:", err);
+          return res.status(500).json({ error: "Failed to insert daily report" });
+        }
+  
+        const reportId = reportResult.insertId;
+  
+        if (projects && projects.length > 0) {
+          const projectValues = projects.map((p) => [
+            reportId,
+            p.projectId || null,
+            p.name,
+            p.startTime,
+            p.endTime,
+            p.description || "",
+          ]);
+  
+          const projectQuery = `INSERT INTO daily_report_projects (report_id, project_id, project_name, start_time, end_time, task_description) VALUES ?`;
+  
+          con.query(projectQuery, [projectValues], async (err2) => {
+            if (err2) {
+              console.error("Error inserting into daily_report_projects:", err2);
+              return res.status(500).json({ error: "Failed to insert project details" });
+            }
+  
+            // ...email sending stays unchanged...
+            // (keep your existing email build and send logic here)
 
           console.log(`✅ Report inserted with ID ${reportId}`);
 
@@ -1265,6 +1264,82 @@ This report was generated automatically by the Sense Time Tracker system.
 
   } catch (error) {
     console.error("Error in send-monthly-report route:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+
+// Projects: list by employee
+router.get("/api/projects", (req, res) => {
+  try {
+    const { employeeId } = req.query;
+    if (!employeeId) {
+      return res.status(400).json({ error: "employeeId is required" });
+    }
+    const q = `
+      SELECT id, employee_id, project_name, start_date, end_date, status
+      FROM projects
+      WHERE employee_id = ?
+      ORDER BY id DESC
+    `;
+    con.query(q, [employeeId], (err, rows) => {
+      if (err) {
+        console.error("Error fetching projects:", err);
+        return res.status(500).json({ error: "Failed to fetch projects" });
+      }
+      res.json({ success: true, projects: rows });
+    });
+  } catch (e) {
+    console.error("Error in GET /api/projects:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Projects: add
+router.post("/api/projects", (req, res) => {
+  try {
+    const { employee_id, project_name, start_date, end_date } = req.body;
+    if (!employee_id || !project_name || !start_date || !end_date) {
+      return res.status(400).json({ error: "employee_id, project_name, start_date, end_date are required" });
+    }
+    const q = `
+      INSERT INTO projects (employee_id, project_name, start_date, end_date, status)
+      VALUES (?, ?, ?, ?, 'active')
+    `;
+    con.query(q, [employee_id, project_name, start_date, end_date], (err, result) => {
+      if (err) {
+        console.error("Error adding project:", err);
+        return res.status(500).json({ error: "Failed to add project" });
+      }
+      res.json({ success: true, id: result.insertId });
+    });
+  } catch (e) {
+    console.error("Error in POST /api/projects:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Projects: update status
+router.patch("/api/projects/:projectId/status", (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { status } = req.body;
+    if (!["active", "paused", "completed"].includes(status)) {
+      return res.status(400).json({ error: "Invalid status" });
+    }
+    const q = `UPDATE projects SET status = ? WHERE id = ?`;
+    con.query(q, [status, projectId], (err, result) => {
+      if (err) {
+        console.error("Error updating project status:", err);
+        return res.status(500).json({ error: "Failed to update status" });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+      res.json({ success: true });
+    });
+  } catch (e) {
+    console.error("Error in PATCH /api/projects/:projectId/status:", e);
     res.status(500).json({ error: "Internal server error" });
   }
 });
