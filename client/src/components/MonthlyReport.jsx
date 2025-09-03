@@ -541,7 +541,7 @@ export default function MonthlyReport() {
             </div>
             <div class="${styles['pdf-summary-row']}">
               <span class="${styles['pdf-summary-label']}">Total Projects:</span>
-              <span class="${styles['pdf-summary-value']}">${totalProjects}</span>
+              <span class="${styles['pdf-summary-value']}">${projectAggregates.length}</span>
             </div>
             <div class="${styles['pdf-summary-row']}">
               <span class="${styles['pdf-summary-label']}">Total Time:</span>
@@ -550,7 +550,7 @@ export default function MonthlyReport() {
             <div class="${styles['pdf-summary-row']}">
               <span class="${styles['pdf-summary-label']}">Average Time/Project:</span>
               <span class="${styles['pdf-summary-value']}">
-                ${totalProjects > 0 ? formatDuration(Math.round(totalTimeMinutes / totalProjects)) : "0h 0m"}
+              ${formatDuration(avgPerProjectMinutes)}
               </span>
             </div>
 
@@ -730,7 +730,7 @@ export default function MonthlyReport() {
                 <h3 className="text-sm font-medium text-gray-600">Total Projects</h3>
                 <BarChart3 className="h-4 w-4 text-gray-400" />
               </div>
-              <div className="text-2xl font-bold">{totalProjects}</div>
+              <div className="text-2xl font-bold">{projectAggregates.length}</div>
             </div>
             <div className="bg-white rounded-lg shadow-sm border p-6">
               <div className="flex items-center justify-between mb-2">
@@ -745,7 +745,7 @@ export default function MonthlyReport() {
                 <TrendingUp className="h-4 w-4 text-gray-400" />
               </div>
               <div className="text-2xl font-bold">
-                {totalProjects > 0 ? formatDuration(Math.round(totalTimeMinutes / totalProjects)) : "0h 0m"}
+              {formatDuration(avgPerProjectMinutes)}
               </div>
             </div>
           </div>
