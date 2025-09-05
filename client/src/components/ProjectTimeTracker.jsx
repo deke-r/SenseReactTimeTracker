@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { useForm } from "react-hook-form"
 import axios from "axios"
-import { Clock, Plus, Trash2, BarChart3, Calendar,Pencil, Send, FileText, Loader2, Mail } from "lucide-react"
+import { Clock, Plus, Trash2, BarChart3, Calendar, Pencil, Send, FileText, Loader2, Mail, Edit } from "lucide-react"
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL
 
@@ -20,6 +20,9 @@ export default function ProjectTimeTracker() {
   const [projectModalOpen, setProjectModalOpen] = useState(false)
   const [newProjectForm, setNewProjectForm] = useState({ name: "", startDate: "", endDate: "" })
   const [updatingStatusId, setUpdatingStatusId] = useState(null)
+  const [editProjectModalOpen, setEditProjectModalOpen] = useState(false)
+  const [editProjectForm, setEditProjectForm] = useState({ name: "", startDate: "", endDate: "" })
+  const [deletingProjectId, setDeletingProjectId] = useState(null)
 
   const {
     register,
@@ -268,6 +271,85 @@ export default function ProjectTimeTracker() {
     }
   }
 
+  const openEditProjectModal = (project) => {
+    setEditProject(project)
+    setEditProjectForm({
+      name: project.project_name,
+      startDate: project.start_date,
+      endDate: project.end_date,
+    })
+    setEditProjectModalOpen(true)
+  }
+
+  const closeEditProjectModal = () => {
+    setEditProjectModalOpen(false)
+    setEditProject(null)
+    setEditProjectForm({ name: "", startDate: "", endDate: "" })
+  }
+
+  const saveProjectEdit = async () => {
+    const { name, startDate, endDate } = editProjectForm
+    if (!name.trim() || !startDate || !endDate) {
+      showToast("Missing Information", "All fields are required", "destructive")
+      return
+    }
+
+    if (new Date(startDate) > new Date(endDate)) {
+      showToast("Invalid Date", "End date must be after start date", "destructive")
+      return
+    }
+
+    try {
+      const response = await axios.put(`${API_BASE_URL}/api/projects/${editProject.id}`, {
+        project_name: name.trim(),
+        start_date: startDate,
+        end_date: endDate,
+      })
+
+      if (response.data.success) {
+        showToast("✅ Project Updated", response.data.message)
+        
+        // Update the local state
+        setEmployeeProjects(prev => 
+          prev.map(p => 
+            p.id === editProject.id 
+              ? { ...p, project_name: name.trim(), start_date: startDate, end_date: endDate }
+              : p
+          )
+        )
+        
+        closeEditProjectModal()
+      }
+    } catch (error) {
+      showToast("❌ Error", error.response?.data?.error || "Failed to update project", "destructive")
+    }
+  }
+
+  const deleteProject = async (projectId, projectName) => {
+    if (!window.confirm(`Are you sure you want to delete the project "${projectName}"? This will also delete all related time reports for this project.`)) {
+      return
+    }
+
+    setDeletingProjectId(projectId)
+    try {
+      const response = await axios.delete(`${API_BASE_URL}/api/projects/${projectId}`)
+      
+      if (response.data.success) {
+        showToast("✅ Project Deleted", `${response.data.message} (${response.data.deletedReports} reports deleted)`)
+        
+        // Update the local state
+        setEmployeeProjects(prev => prev.filter(p => p.id !== projectId))
+        
+        // Also remove from current day's projects if it exists
+        setProjects(prev => prev.filter(p => p.projectId !== projectId))
+      }
+    } catch (error) {
+      showToast("❌ Error", error.response?.data?.error || "Failed to delete project", "destructive")
+    } finally {
+      setDeletingProjectId(null)
+    }
+  }
+
   useEffect(() => {
     fetchEmployees()
   }, [])
@@ -360,7 +442,7 @@ export default function ProjectTimeTracker() {
           </div>
         </div>
 
-        {/* Projects Section */}
+        {/* Projects Section - UPDATED WITH EDIT/DELETE BUTTONS */}
         <div className="bg-white rounded-lg shadow-sm border">
           <div className="p-6 border-b">
             <h2 className="text-xl font-bold">Projects</h2>
@@ -368,7 +450,6 @@ export default function ProjectTimeTracker() {
           </div>
           <div className="p-6 space-y-4">
             <div className="flex items-center justify-between gap-4">
-           
               <button
                 type="button"
                 onClick={() => setProjectModalOpen(true)}
@@ -388,6 +469,7 @@ export default function ProjectTimeTracker() {
                       <th className="py-2">Start</th>
                       <th className="py-2">End</th>
                       <th className="py-2">Status</th>
+                      <th className="py-2">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -422,8 +504,30 @@ export default function ProjectTimeTracker() {
                             <option value="active">Active</option>
                             <option value="paused">Paused</option>
                             <option value="completed">Completed</option>
-                     
                           </select>
+                        </td>
+                        <td className="py-2">
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => openEditProjectModal(p)}
+                              className="text-blue-600 hover:text-blue-800 p-1"
+                              title="Edit Project"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </button>
+                            <button
+                              onClick={() => deleteProject(p.id, p.project_name)}
+                              disabled={deletingProjectId === p.id}
+                              className="text-red-500 hover:text-red-700 p-1 disabled:opacity-50"
+                              title="Delete Project"
+                            >
+                              {deletingProjectId === p.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -811,6 +915,65 @@ export default function ProjectTimeTracker() {
                   className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
                 >
                   Save
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editProjectModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" onClick={closeEditProjectModal} />
+          <div className="relative bg-white w-full max-w-lg mx-4 rounded-lg shadow-lg border">
+            <div className="p-6 border-b">
+              <h3 className="text-lg font-semibold">Edit Project</h3>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-gray-700">Project Name *</label>
+                <input
+                  type="text"
+                  value={editProjectForm.name}
+                  onChange={(e) => setEditProjectForm(f => ({ ...f, name: e.target.value }))}
+                  className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 border-gray-300"
+                />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Start Date *</label>
+                  <input
+                    type="date"
+                    value={editProjectForm.startDate}
+                    onChange={(e) => setEditProjectForm(f => ({ ...f, startDate: e.target.value }))}
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 border-gray-300"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">End Date *</label>
+                  <input
+                    type="date"
+                    value={editProjectForm.endDate}
+                    onChange={(e) => setEditProjectForm(f => ({ ...f, endDate: e.target.value }))}
+                    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 border-gray-300"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closeEditProjectModal}
+                  className="px-4 py-2 rounded-md border hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={saveProjectEdit}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
+                >
+                  Save Changes
                 </button>
               </div>
             </div>

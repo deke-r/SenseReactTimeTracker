@@ -1344,4 +1344,197 @@ router.patch("/api/projects/:projectId/status", (req, res) => {
   }
 });
 
+// Projects: update project details
+router.put("/api/projects/:projectId", (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const { project_name, start_date, end_date } = req.body;
+    
+    if (!project_name || !start_date || !end_date) {
+      return res.status(400).json({ error: "project_name, start_date, and end_date are required" });
+    }
+
+    // Format dates to YYYY-MM-DD format for MySQL
+    const formatDateForMySQL = (dateString) => {
+      const date = new Date(dateString);
+      return date.toISOString().split('T')[0];
+    };
+
+    const formattedStartDate = formatDateForMySQL(start_date);
+    const formattedEndDate = formatDateForMySQL(end_date);
+
+    // First, get the current project to check if name changed
+    const getProjectQuery = `SELECT project_name FROM projects WHERE id = ?`;
+    con.query(getProjectQuery, [projectId], (err, result) => {
+      if (err) {
+        console.error("Error fetching project:", err);
+        return res.status(500).json({ error: "Failed to fetch project" });
+      }
+      
+      if (result.length === 0) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      const oldProjectName = result[0].project_name;
+      const projectNameChanged = oldProjectName !== project_name;
+
+      // Update the project
+      const updateQuery = `
+        UPDATE projects 
+        SET project_name = ?, start_date = ?, end_date = ?, updated_at = CURRENT_TIMESTAMP 
+        WHERE id = ?
+      `;
+      
+      con.query(updateQuery, [project_name, formattedStartDate, formattedEndDate, projectId], (err, updateResult) => {
+        if (err) {
+          console.error("Error updating project:", err);
+          return res.status(500).json({ error: "Failed to update project" });
+        }
+
+        if (updateResult.affectedRows === 0) {
+          return res.status(404).json({ error: "Project not found" });
+        }
+
+        // If project name changed, update all related daily report projects
+        if (projectNameChanged) {
+          const updateReportsQuery = `
+            UPDATE daily_report_projects 
+            SET project_name = ? 
+            WHERE project_id = ?
+          `;
+          
+          con.query(updateReportsQuery, [project_name, projectId], (err, reportUpdateResult) => {
+            if (err) {
+              console.error("Error updating report projects:", err);
+              // Don't fail the request, just log the error
+            } else {
+              console.log(`Updated ${reportUpdateResult.affectedRows} report projects with new name`);
+            }
+          });
+        }
+
+        res.json({ 
+          success: true, 
+          message: "Project updated successfully",
+          projectNameChanged,
+          updatedReports: projectNameChanged ? "All related reports updated" : "No reports needed updating"
+        });
+      });
+    });
+  } catch (e) {
+    console.error("Error in PUT /api/projects/:projectId:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// Projects: delete project
+router.delete("/api/projects/:projectId", (req, res) => {
+  try {
+    const { projectId } = req.params;
+
+    // First, get project info for logging
+    const getProjectQuery = `SELECT project_name, employee_id FROM projects WHERE id = ?`;
+    con.query(getProjectQuery, [projectId], (err, result) => {
+      if (err) {
+        console.error("Error fetching project:", err);
+        return res.status(500).json({ error: "Failed to fetch project" });
+      }
+      
+      if (result.length === 0) {
+        return res.status(404).json({ error: "Project not found" });
+      }
+
+      const projectName = result[0].project_name;
+      const employeeId = result[0].employee_id;
+
+      // Get all report IDs that have entries for this project
+      const getReportIdsQuery = `
+        SELECT DISTINCT report_id 
+        FROM daily_report_projects 
+        WHERE project_id = ?
+      `;
+      
+      con.query(getReportIdsQuery, [projectId], (err, reportIdsResult) => {
+        if (err) {
+          console.error("Error fetching report IDs:", err);
+          return res.status(500).json({ error: "Failed to fetch report IDs" });
+        }
+
+        const reportIds = reportIdsResult.map(row => row.report_id);
+        const reportCount = reportIds.length;
+
+        // First delete related entries from daily_report_projects
+        const deleteReportsQuery = `DELETE FROM daily_report_projects WHERE project_id = ?`;
+        
+        con.query(deleteReportsQuery, [projectId], (err, deleteReportsResult) => {
+          if (err) {
+            console.error("Error deleting related reports:", err);
+            return res.status(500).json({ error: "Failed to delete related reports" });
+          }
+
+          // Find which reports are now empty (no more project entries)
+          if (reportIds.length > 0) {
+            const findEmptyReportsQuery = `
+              SELECT dr.id 
+              FROM daily_reports dr 
+              LEFT JOIN daily_report_projects drp ON dr.id = drp.report_id 
+              WHERE dr.id IN (${reportIds.map(() => '?').join(',')}) 
+              AND drp.id IS NULL
+            `;
+            
+            con.query(findEmptyReportsQuery, reportIds, (err, emptyReportsResult) => {
+              if (err) {
+                console.error("Error finding empty reports:", err);
+                // Continue with project deletion even if this fails
+              } else {
+                const emptyReportIds = emptyReportsResult.map(row => row.id);
+                
+                // Delete empty reports from daily_reports
+                if (emptyReportIds.length > 0) {
+                  const deleteEmptyReportsQuery = `DELETE FROM daily_reports WHERE id IN (${emptyReportIds.map(() => '?').join(',')})`;
+                  
+                  con.query(deleteEmptyReportsQuery, emptyReportIds, (err, deleteEmptyResult) => {
+                    if (err) {
+                      console.error("Error deleting empty reports:", err);
+                      // Continue with project deletion even if this fails
+                    } else {
+                      console.log(`Deleted ${emptyReportIds.length} empty daily reports`);
+                    }
+                  });
+                }
+              }
+            });
+          }
+
+          // Then delete the project itself
+          const deleteProjectQuery = `DELETE FROM projects WHERE id = ?`;
+          
+          con.query(deleteProjectQuery, [projectId], (err, deleteProjectResult) => {
+            if (err) {
+              console.error("Error deleting project:", err);
+              return res.status(500).json({ error: "Failed to delete project" });
+            }
+
+            if (deleteProjectResult.affectedRows === 0) {
+              return res.status(404).json({ error: "Project not found" });
+            }
+
+            console.log(`Deleted project "${projectName}" (ID: ${projectId}) and ${reportCount} related report entries`);
+
+            res.json({ 
+              success: true, 
+              message: "Project deleted successfully",
+              deletedReports: reportCount,
+              projectName
+            });
+          });
+        });
+      });
+    });
+  } catch (e) {
+    console.error("Error in DELETE /api/projects/:projectId:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 module.exports = router;
